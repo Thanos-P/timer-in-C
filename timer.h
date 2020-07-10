@@ -36,6 +36,11 @@ queue *globalQueue;
 volatile int active_timers = 0;
 pthread_mutex_t timer_mut;
 
+// Flag that indicates termination of consumers
+volatile int consumerTerminationFlag = 0;
+// Condition that indicated when a consumer is terminated
+pthread_cond_t consumerTerminated;
+
 // Producer and consumer function declaration
 void *producer(void *args);
 void *consumer(void *args);
@@ -82,6 +87,7 @@ void startat(timer *t, int year, int month, int day, int hour, int min, int sec)
   }
 
   printf("Waiting for %ld seconds\n", t->WaitTime);
+  // Create a thread to wait until it is time to start the producer
   pthread_create(&(t->pro), NULL, waitingProducer, t);
 }
 
@@ -112,6 +118,9 @@ int timerInit(timer *t, unsigned int Period, int TasksToExecute, unsigned int St
       pthread_mutex_unlock(&timer_mut);
       return -1;
     }
+
+    // Initialize consumer termination condition
+    pthread_cond_init(&consumerTerminated, NULL);
 
     // Start consumer threads
     for(int i = 0; i < CONSUMERS_NUM; i++){
@@ -144,12 +153,14 @@ void *producer(void *args){
   timer *t = (timer *)args;
 
   workFunction input;
+  // Set lastItemFlag to false
+  input.lastItemFlag = 0;
 
   // ====================== Call StartFcn ======================
   // Set function
   input.work = t->StartFcn;
   // Set function arguement
-  input.arg = NULL;
+  input.arg = t->Userdata;
 
   // Add element to queue
   pthread_mutex_lock(t->fifo->mut);
@@ -157,7 +168,7 @@ void *producer(void *args){
     printf("producer: queue FULL.\n");
     // Call error function
     if(t->ErrorFcn != NULL){
-      t->ErrorFcn(NULL);
+      t->ErrorFcn(t->Userdata);
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
@@ -184,7 +195,7 @@ void *producer(void *args){
       printf("producer: queue FULL.\n");
       // Call error function
       if(t->ErrorFcn != NULL){
-        t->ErrorFcn(NULL);
+        t->ErrorFcn(t->Userdata);
       }
       pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
     }
@@ -213,7 +224,9 @@ void *producer(void *args){
   // Set function
   input.work = t->StopFcn;
   // Set function arguement
-  input.arg = NULL;
+  input.arg = t->Userdata;
+  // Set lastItemFlag to true on last item added for the timer
+  input.lastItemFlag = 1;
 
   // Add element to queue
   pthread_mutex_lock(t->fifo->mut);
@@ -221,7 +234,7 @@ void *producer(void *args){
     printf("producer: queue FULL.\n");
     // Call error function
     if(t->ErrorFcn != NULL){
-      t->ErrorFcn(NULL);
+      t->ErrorFcn(t->Userdata);
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
@@ -232,22 +245,7 @@ void *producer(void *args){
   pthread_mutex_unlock(t->fifo->mut);
   pthread_cond_signal(t->fifo->notEmpty);
 
-  // // critical section (to keep active_timers thread-safe)
-  // pthread_mutex_lock(&timer_mut);
-  //
-  // // If this is the last active timer
-  // if(active_timers == 1){
-  //   // Stop consumer threads
-  //   for(int i = 0; i < CONSUMERS_NUM; i++){
-  //     pthread_kill(con[i], SIGINT);
-  //   }
-  // }
-  // // decrement active timer count
-  // active_timers--;
-  //
-  // pthread_mutex_unlock(&timer_mut);
-
-  return (NULL);
+  return NULL;
 }
 
 void *consumer(void *args){
@@ -260,6 +258,14 @@ void *consumer(void *args){
     pthread_mutex_lock(fifo->mut);
     while(fifo->empty){
       printf("consumer: queue EMPTY.\n");
+
+      // Check consumerTerminationFlag
+      if(consumerTerminationFlag){
+        pthread_mutex_unlock(fifo->mut);
+        pthread_cond_signal(&consumerTerminated);
+        // Terminate consumer
+        return NULL;
+      }
       pthread_cond_wait(fifo->notEmpty, fifo->mut);
     }
     queueDel(fifo, &output);
@@ -276,9 +282,43 @@ void *consumer(void *args){
     if(output.work != NULL){
       output.work(output.arg);
     }
+
+    // If this item is flagged as the last
+    if(output.lastItemFlag){
+      // critical section (to keep active_timers thread-safe)
+      pthread_mutex_lock(&timer_mut);
+
+      // decrement active timer count
+      active_timers--;
+
+      // If this is the last active timer
+      if(active_timers == 0){
+        // Set consumerTerminationFlag to true
+        consumerTerminationFlag = 1;
+
+        // Terminate all other consumer threads
+        for(int i = 0; i < CONSUMERS_NUM-1; i++){
+          // Notify one consumer to detect the termination flag
+          pthread_cond_signal(fifo->notEmpty);
+          // Wait until current consumer terminates to move to the next
+          pthread_cond_wait(&consumerTerminated, &timer_mut);
+        }
+
+        pthread_mutex_unlock(&timer_mut);
+
+        // Destroy timer queue and condition
+        pthread_cond_destroy(&consumerTerminated);
+        queueDelete(fifo);
+
+        // Terminate current consumer
+        return NULL;
+      }
+
+      pthread_mutex_unlock(&timer_mut);
+    }
   }
 
-  return (NULL);
+  return NULL;
 }
 
 #endif /* TIMER_H */

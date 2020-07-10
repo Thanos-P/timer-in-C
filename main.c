@@ -26,19 +26,19 @@ void *myTimerFun(void *arg)
 
 void *myStartFun(void *arg)
 {
-	printf("This is the START function\n");
+	printf("This is the START function with Userdata=%d\n", *((int *)arg));
 	return NULL;
 }
 
 void *myStopFun(void *arg)
 {
-	printf("This is the STOP function\n");
+	printf("This is the STOP function with Userdata=%d\n", *((int *)arg));
 	return NULL;
 }
 
 void *myErrorFun(void *arg)
 {
-	printf("This is the ERROR function\n");
+	printf("This is the ERROR function with Userdata=%d\n", *((int *)arg));
 	return NULL;
 }
 // ================================================================
@@ -62,14 +62,15 @@ int main (){
   // Redirect control to termination function on <CTRL>+C
   // signal(SIGINT, termination);
 
-  // Initialize timer
   pthread_mutex_init(&timer_mut, NULL);
 
+	// Initialize timer
   timer t1;
   unsigned int Period = 1000;
   int TasksToExecute = 5;
   unsigned int StartDelay = 0;
-  void *Userdata = NULL;
+  void *Userdata = (void *)malloc(sizeof(int));
+	*((int *)Userdata) = 1000;
 
   if(timerInit(&t1, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
                myTimerFun, myErrorFun, Userdata) == -1){
@@ -79,13 +80,14 @@ int main (){
   }
 
   // Start timer
-  startat(&t1,2020,7,9,22,43,0);
+  start(&t1);
 
+
+	// Initialize timer
 	timer t2;
-	Period = 1000;
+	Period = 500;
   TasksToExecute = 5;
-  StartDelay = 2;
-  Userdata = NULL;
+  StartDelay = 0;
 
 	if(timerInit(&t2, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
                myTimerFun, myErrorFun, Userdata) == -1){
@@ -94,14 +96,15 @@ int main (){
     exit(1);
   }
 
+	// Start timer
 	start(&t2);
 
 	// Wait for timer execution
 	timerWait();
 
-  queueDelete(t1.fifo);
+	free(Userdata);
 
-  pthread_mutex_destroy(&timer_mut);
+	pthread_mutex_destroy(&timer_mut);
 
   // fclose(fp);
 

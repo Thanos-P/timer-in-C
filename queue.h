@@ -22,6 +22,8 @@ typedef struct {
   void * arg;
   // Time structures
   struct timeval startwtime, endwtime;
+  // Flag to indicate that timer has added last item to queue
+  int lastItemFlag;
 } workFunction;
 
 // Queue structure declaration
