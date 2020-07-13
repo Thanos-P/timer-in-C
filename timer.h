@@ -16,7 +16,7 @@
 typedef struct {
   // Specification
   unsigned int Period;
-  int TasksToExecute;
+  unsigned int TasksToExecute;
   unsigned int StartDelay;
   void * (*StartFcn)(void *);
   void * (*StopFcn)(void *);
@@ -47,6 +47,10 @@ void *consumer(void *args);
 
 // Consumer thread declaration
 pthread_t con[CONSUMERS_NUM];
+
+// Results file pointer
+FILE *fp;
+
 
 // Function to start a timer
 void start(timer *t){
@@ -82,17 +86,20 @@ void startat(timer *t, int year, int month, int day, int hour, int min, int sec)
                 (sec - dt.tm_sec);
 
   if(t->WaitTime < 0){
-    printf("Invalid start time\n");
-    return;
+    printf("Invalid start time, starting timer now\n");
+    // Set waiting time to 0 in case of a past start time
+    t->WaitTime = 0;
+  }else{
+    printf("Waiting for %ld seconds\n", t->WaitTime);
   }
 
-  printf("Waiting for %ld seconds\n", t->WaitTime);
   // Create a thread to wait until it is time to start the producer
   pthread_create(&(t->pro), NULL, waitingProducer, t);
 }
 
 // Timer initialization function
-int timerInit(timer *t, unsigned int Period, int TasksToExecute, unsigned int StartDelay,
+int timerInit(timer *t, unsigned int Period, unsigned int TasksToExecute,
+              unsigned int StartDelay,
               void * (*StartFcn)(void *), void * (*StopFcn)(void *),
               void * (*TimerFcn)(void *), void * (*ErrorFcn)(void *),
               void *Userdata){
@@ -152,6 +159,14 @@ void timerWait(void){
 void *producer(void *args){
   timer *t = (timer *)args;
 
+  // Initialize timeval structures for measuring time drift
+  struct timeval *currentStartTime, *previousStartTime, *temp;
+  currentStartTime = (struct timeval *)malloc(sizeof(struct timeval));
+  previousStartTime = (struct timeval *)malloc(sizeof(struct timeval));
+  int timeDrift = 0;
+  // Initialize adjusted Period (it will be tuned according to timeDrift below)
+  unsigned int adjustedPeriod = 1000 * t->Period;
+
   workFunction input;
   // Set lastItemFlag to false
   input.lastItemFlag = 0;
@@ -165,7 +180,6 @@ void *producer(void *args){
   // Add element to queue
   pthread_mutex_lock(t->fifo->mut);
   while(t->fifo->full){
-    printf("producer: queue FULL.\n");
     // Call error function
     if(t->ErrorFcn != NULL){
       t->ErrorFcn(t->Userdata);
@@ -183,7 +197,23 @@ void *producer(void *args){
   sleep(t->StartDelay);
 
   // ================ Repeatedly call TimerFcn ================
-  for (int i = t->TasksToExecute; i != 0; i--) {
+  for (unsigned int i = t->TasksToExecute; i > 0; i--) {
+    // Measure current start time of producer execution
+    gettimeofday(currentStartTime, NULL);
+    // If this is not the first iteration
+    if(i != t->TasksToExecute){
+      // Calculate time drift in microseconds
+      timeDrift = (currentStartTime->tv_sec - previousStartTime->tv_sec) * 1.0e6
+                  + (currentStartTime->tv_usec - previousStartTime->tv_usec)
+                  - t->Period * 1.0e3;
+    }
+    // Swap times
+    temp = previousStartTime;
+    previousStartTime = currentStartTime;
+    currentStartTime = temp;
+    // Print result to file
+    fprintf(fp, "%d\n", timeDrift);
+
     // Set function
     input.work = t->TimerFcn;
     // Set function arguement
@@ -191,13 +221,16 @@ void *producer(void *args){
 
     // Add element to queue
     pthread_mutex_lock(t->fifo->mut);
-    while(t->fifo->full){
-      printf("producer: queue FULL.\n");
+    if(t->fifo->full){
       // Call error function
       if(t->ErrorFcn != NULL){
         t->ErrorFcn(t->Userdata);
       }
-      pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
+      // drop current function call, in case of a full queue
+      pthread_mutex_unlock(t->fifo->mut);
+      // Wait for the next call
+      usleep(adjustedPeriod);
+      continue;
     }
     // Start timer for the item
     gettimeofday(&(input.startwtime), NULL);
@@ -207,16 +240,13 @@ void *producer(void *args){
     pthread_cond_signal(t->fifo->notEmpty);
 
     // if this is not the last iteration
-    if(i != 1){
+    if(i > 1){
+      if((long)adjustedPeriod - timeDrift > 0){
+        // Adjust the Period
+        adjustedPeriod -= timeDrift;
+      }
       // Wait for the next call
-      usleep(1000 * t->Period);
-    }
-
-    // if TasksToExecute (therefore i) is negative
-    if(i < 0){
-      // Set i to 0 on every iteration
-      // so it always starts the loop with value -1
-      i = 0;
+      usleep(adjustedPeriod);
     }
   }
 
@@ -231,7 +261,6 @@ void *producer(void *args){
   // Add element to queue
   pthread_mutex_lock(t->fifo->mut);
   while(t->fifo->full){
-    printf("producer: queue FULL.\n");
     // Call error function
     if(t->ErrorFcn != NULL){
       t->ErrorFcn(t->Userdata);
@@ -244,6 +273,9 @@ void *producer(void *args){
   queueAdd(t->fifo, input);
   pthread_mutex_unlock(t->fifo->mut);
   pthread_cond_signal(t->fifo->notEmpty);
+
+  free(currentStartTime);
+  free(previousStartTime);
 
   return NULL;
 }
@@ -272,6 +304,7 @@ void *consumer(void *args){
 
     // Stop timer for the item
     gettimeofday(&(output.endwtime), NULL);
+    // Write results to file
     // fprintf(fp, "%f\n", (double)((output.endwtime.tv_usec - output.startwtime.tv_usec)/1.0e6
     //         + output.endwtime.tv_sec - output.startwtime.tv_sec));
 

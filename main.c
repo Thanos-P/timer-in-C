@@ -43,31 +43,19 @@ void *myErrorFun(void *arg)
 }
 // ================================================================
 
-// Results file pointer
-// FILE *fp;
-
-// Function for closing the file pointer on termination
-// void termination(int signum){
-//   printf("\nTerminating...\n");
-//   fclose(fp);
-//   exit(0);
-// }
-
 int main (){
   // Initialize file pointer
-  // char filename[30];
-  // sprintf(filename, "results_n=%d_m=%d.csv", PRODUCERS_NUM, CONSUMERS_NUM);
-  // fp = fopen(filename, "a");
-
-  // Redirect control to termination function on <CTRL>+C
-  // signal(SIGINT, termination);
+  char filename[30];
+  sprintf(filename, "results_m=%d.csv", CONSUMERS_NUM);
+  fp = fopen(filename, "a");
 
   pthread_mutex_init(&timer_mut, NULL);
 
-	// Initialize timer
+
+	// ~~~~~~~~ Initialize timer #1 ~~~~~~~~
   timer t1;
   unsigned int Period = 1000;
-  int TasksToExecute = 5;
+  unsigned int TasksToExecute = 10;
   unsigned int StartDelay = 0;
   void *Userdata = (void *)malloc(sizeof(int));
 	*((int *)Userdata) = 1000;
@@ -79,14 +67,14 @@ int main (){
     exit(1);
   }
 
-  // Start timer
+  // ~~~~~~~~~~ Start timer #1 ~~~~~~~~~~
   start(&t1);
 
 
-	// Initialize timer
+	// ~~~~~~~~ Initialize timer #2 ~~~~~~~~
 	timer t2;
-	Period = 500;
-  TasksToExecute = 5;
+	Period = 100;
+  TasksToExecute = 100;
   StartDelay = 0;
 
 	if(timerInit(&t2, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
@@ -96,8 +84,26 @@ int main (){
     exit(1);
   }
 
-	// Start timer
+	// ~~~~~~~~~~ Start timer #2 ~~~~~~~~~~
 	start(&t2);
+
+
+	// ~~~~~~~~ Initialize timer #3 ~~~~~~~~
+	timer t3;
+	Period = 10;
+  TasksToExecute = 1000;
+  StartDelay = 0;
+
+	if(timerInit(&t3, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
+               myTimerFun, myErrorFun, Userdata) == -1){
+
+    fprintf(stderr, "main: Timer Init failed.\n");
+    exit(1);
+  }
+
+	// ~~~~~~~~~~ Start timer #3 ~~~~~~~~~~
+	start(&t3);
+
 
 	// Wait for timer execution
 	timerWait();
@@ -106,7 +112,7 @@ int main (){
 
 	pthread_mutex_destroy(&timer_mut);
 
-  // fclose(fp);
+  fclose(fp);
 
   return 0;
 }
