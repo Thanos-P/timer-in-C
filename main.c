@@ -16,10 +16,7 @@
 void *myTimerFun(void *arg)
 {
 	int n = (int)arg;
-	if(n == -1)
-		printf("my function: remaining calls = inf\n");
-	else
-		printf("my function: remaining calls = %d\n", n-1);
+	printf("my function: remaining calls = %d\n", n-1);
 
 	return NULL;
 }
@@ -43,14 +40,9 @@ void *myErrorFun(void *arg)
 }
 // ================================================================
 
+
 int main (){
-  // Initialize file pointer
-  char filename[30];
-  sprintf(filename, "results_m=%d.csv", CONSUMERS_NUM);
-  fp = fopen(filename, "a");
-
   pthread_mutex_init(&timer_mut, NULL);
-
 
 	// ~~~~~~~~ Initialize timer #1 ~~~~~~~~
   timer t1;
@@ -111,8 +103,6 @@ int main (){
 	free(Userdata);
 
 	pthread_mutex_destroy(&timer_mut);
-
-  fclose(fp);
 
   return 0;
 }

@@ -20,8 +20,6 @@
 typedef struct {
   void * (*work)(void *);
   void * arg;
-  // Time structures
-  struct timeval startwtime, endwtime;
   // Flag to indicate that timer has added last item to queue
   int lastItemFlag;
 } workFunction;

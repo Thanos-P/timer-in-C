@@ -14,7 +14,7 @@
 #define CONSUMERS_NUM 1
 
 typedef struct {
-  // Specification
+  // Timer object specification
   unsigned int Period;
   unsigned int TasksToExecute;
   unsigned int StartDelay;
@@ -23,11 +23,13 @@ typedef struct {
   void * (*TimerFcn)(void *);
   void * (*ErrorFcn)(void *);
   void *Userdata;
-  // Further timer parameters
+  // Auxiliary timer parameters
   pthread_t pro;
   queue *fifo;
   long WaitTime;
 } timer;
+
+// *** GLOBAL VARIABLES ***
 
 // Common global queue
 queue *globalQueue;
@@ -38,25 +40,17 @@ pthread_mutex_t timer_mut;
 
 // Flag that indicates termination of consumers
 volatile int consumerTerminationFlag = 0;
-// Condition that indicated when a consumer is terminated
+// Condition that indicates when a consumer is terminated
 pthread_cond_t consumerTerminated;
-
-// Producer and consumer function declaration
-void *producer(void *args);
-void *consumer(void *args);
 
 // Consumer thread declaration
 pthread_t con[CONSUMERS_NUM];
 
-// Results file pointer
-FILE *fp;
+// *** FUNCTIONS ***
 
-
-// Function to start a timer
-void start(timer *t){
-  // Start producer thread
-  pthread_create(&(t->pro), NULL, producer, t);
-}
+// Producer and consumer function declaration
+void *producer(void *args);
+void *consumer(void *args);
 
 // Function to wait until it is time to start producer
 // (used in startat function bellow)
@@ -69,6 +63,12 @@ void *waitingProducer(void *args){
   producer(args);
 
   return NULL;
+}
+
+// Function to start a timer
+void start(timer *t){
+  // Start producer thread
+  pthread_create(&(t->pro), NULL, producer, t);
 }
 
 // Function to start a timer at a desired date and time
@@ -149,7 +149,7 @@ int timerInit(timer *t, unsigned int Period, unsigned int TasksToExecute,
 void timerWait(void){
   // Join consumer threads
   for(int i = 0; i < CONSUMERS_NUM; i++){
-    pthread_join (con[i], NULL);
+    pthread_join(con[i], NULL);
   }
 }
 
@@ -166,6 +166,13 @@ void *producer(void *args){
   int timeDrift = 0;
   // Initialize adjusted Period (it will be tuned according to timeDrift below)
   unsigned int adjustedPeriod = 1000 * t->Period;
+
+  // Results file pointer
+  FILE *fp;
+  // Initialize file pointer
+  char filename[20];
+  sprintf(filename, "results_T=%u.csv", t->Period);
+  fp = fopen(filename, "a");
 
   workFunction input;
   // Set lastItemFlag to false
@@ -186,8 +193,6 @@ void *producer(void *args){
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
-  // Start timer for the item
-  gettimeofday(&(input.startwtime), NULL);
 
   queueAdd(t->fifo, input);
   pthread_mutex_unlock(t->fifo->mut);
@@ -232,8 +237,6 @@ void *producer(void *args){
       usleep(adjustedPeriod);
       continue;
     }
-    // Start timer for the item
-    gettimeofday(&(input.startwtime), NULL);
 
     queueAdd(t->fifo, input);
     pthread_mutex_unlock(t->fifo->mut);
@@ -241,9 +244,11 @@ void *producer(void *args){
 
     // if this is not the last iteration
     if(i > 1){
+      // Adjust the Period
       if((long)adjustedPeriod - timeDrift > 0){
-        // Adjust the Period
         adjustedPeriod -= timeDrift;
+      }else{
+        adjustedPeriod = 0;
       }
       // Wait for the next call
       usleep(adjustedPeriod);
@@ -267,18 +272,18 @@ void *producer(void *args){
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
-  // Start timer for the item
-  gettimeofday(&(input.startwtime), NULL);
 
   queueAdd(t->fifo, input);
   pthread_mutex_unlock(t->fifo->mut);
   pthread_cond_signal(t->fifo->notEmpty);
 
+  fclose(fp);
   free(currentStartTime);
   free(previousStartTime);
 
   return NULL;
 }
+
 
 void *consumer(void *args){
   queue *fifo = (queue *)args;
@@ -289,8 +294,7 @@ void *consumer(void *args){
     // Get element from queue
     pthread_mutex_lock(fifo->mut);
     while(fifo->empty){
-      printf("consumer: queue EMPTY.\n");
-
+      // printf("consumer: queue EMPTY.\n");
       // Check consumerTerminationFlag
       if(consumerTerminationFlag){
         pthread_mutex_unlock(fifo->mut);
@@ -301,12 +305,6 @@ void *consumer(void *args){
       pthread_cond_wait(fifo->notEmpty, fifo->mut);
     }
     queueDel(fifo, &output);
-
-    // Stop timer for the item
-    gettimeofday(&(output.endwtime), NULL);
-    // Write results to file
-    // fprintf(fp, "%f\n", (double)((output.endwtime.tv_usec - output.startwtime.tv_usec)/1.0e6
-    //         + output.endwtime.tv_sec - output.startwtime.tv_sec));
 
     pthread_mutex_unlock(fifo->mut);
     pthread_cond_signal(fifo->notFull);
