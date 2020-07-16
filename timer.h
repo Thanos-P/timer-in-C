@@ -46,6 +46,11 @@ pthread_cond_t consumerTerminated;
 // Consumer thread declaration
 pthread_t con[CONSUMERS_NUM];
 
+// Global consumer results file pointer
+FILE *cons_fp;
+// Mutex for writing to the file
+pthread_mutex_t file_mut;
+
 // *** FUNCTIONS ***
 
 // Producer and consumer function declaration
@@ -133,6 +138,10 @@ int timerInit(timer *t, unsigned int Period, unsigned int TasksToExecute,
     for(int i = 0; i < CONSUMERS_NUM; i++){
       pthread_create(&con[i], NULL, consumer, globalQueue);
     }
+
+    // Initialize consumer results file pointer and mutex
+    cons_fp = fopen("consumer_times.csv", "a");
+    pthread_mutex_init(&file_mut, NULL);
   }
   // increment active timer count
   active_timers++;
@@ -167,11 +176,11 @@ void *producer(void *args){
   // Initialize adjusted Period (it will be tuned according to timeDrift below)
   unsigned int adjustedPeriod = 1000 * t->Period;
 
-  // Results file pointer
+  // Drift time results file pointer (separate for each producer)
   FILE *fp;
   // Initialize file pointer
   char filename[20];
-  sprintf(filename, "results_T=%u.csv", t->Period);
+  sprintf(filename, "drifting_T=%u.csv", t->Period);
   fp = fopen(filename, "a");
 
   workFunction input;
@@ -193,6 +202,8 @@ void *producer(void *args){
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
+  // Start queue timer for the item
+  gettimeofday(&(input.queueStartTime), NULL);
 
   queueAdd(t->fifo, input);
   pthread_mutex_unlock(t->fifo->mut);
@@ -237,6 +248,8 @@ void *producer(void *args){
       usleep(adjustedPeriod);
       continue;
     }
+    // Start queue timer for the item
+    gettimeofday(&(input.queueStartTime), NULL);
 
     queueAdd(t->fifo, input);
     pthread_mutex_unlock(t->fifo->mut);
@@ -272,6 +285,8 @@ void *producer(void *args){
     }
     pthread_cond_wait(t->fifo->notFull, t->fifo->mut);
   }
+  // Start queue timer for the item
+  gettimeofday(&(input.queueStartTime), NULL);
 
   queueAdd(t->fifo, input);
   pthread_mutex_unlock(t->fifo->mut);
@@ -290,6 +305,10 @@ void *consumer(void *args){
 
   workFunction output;
 
+  // Initialize timeval structures for measuring extraction time by consumer
+  struct timeval delStartTime, delEndTime;
+  int delTime, queueTime;
+
   while(1){
     // Get element from queue
     pthread_mutex_lock(fifo->mut);
@@ -304,16 +323,37 @@ void *consumer(void *args){
       }
       pthread_cond_wait(fifo->notEmpty, fifo->mut);
     }
+
+    // Start extraction timer
+    gettimeofday(&delStartTime, NULL);
+
     queueDel(fifo, &output);
 
     pthread_mutex_unlock(fifo->mut);
     pthread_cond_signal(fifo->notFull);
+
+    // Stop extraction timer
+    gettimeofday(&delEndTime, NULL);
+
+    // Compute times
+    delTime = (delEndTime.tv_sec - delStartTime.tv_sec) * 1.0e6
+              + (delEndTime.tv_usec - delStartTime.tv_usec);
+    queueTime = (delEndTime.tv_sec - output.queueStartTime.tv_sec) * 1.0e6
+                + delEndTime.tv_usec - output.queueStartTime.tv_usec
+                - delTime;
+
+    // Write results to file (thread-safe)
+    pthread_mutex_lock(&file_mut);
+    fprintf(cons_fp, "%d,", queueTime);
+    fprintf(cons_fp, "%d\n", delTime);
+    pthread_mutex_unlock(&file_mut);
 
     // Call function with arguement
     if(output.work != NULL){
       output.work(output.arg);
     }
 
+    // ======= TERMINATION CONDITION =======
     // If this item is flagged as the last
     if(output.lastItemFlag){
       // critical section (to keep active_timers thread-safe)
@@ -340,6 +380,9 @@ void *consumer(void *args){
         // Destroy timer queue and condition
         pthread_cond_destroy(&consumerTerminated);
         queueDelete(fifo);
+        // Close consumer global file and mutex
+        fclose(cons_fp);
+        pthread_mutex_destroy(&file_mut);
 
         // Terminate current consumer
         return NULL;

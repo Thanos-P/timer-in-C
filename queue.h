@@ -20,6 +20,8 @@
 typedef struct {
   void * (*work)(void *);
   void * arg;
+  // Time structure for measuring queue time
+  struct timeval queueStartTime;
   // Flag to indicate that timer has added last item to queue
   int lastItemFlag;
 } workFunction;

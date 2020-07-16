@@ -47,7 +47,7 @@ int main (){
 	// ~~~~~~~~ Initialize timer #1 ~~~~~~~~
   timer t1;
   unsigned int Period = 1000;
-  unsigned int TasksToExecute = 10;
+  unsigned int TasksToExecute = 3600;
   unsigned int StartDelay = 0;
   void *Userdata = (void *)malloc(sizeof(int));
 	*((int *)Userdata) = 1000;
@@ -66,7 +66,7 @@ int main (){
 	// ~~~~~~~~ Initialize timer #2 ~~~~~~~~
 	timer t2;
 	Period = 100;
-  TasksToExecute = 100;
+  TasksToExecute = 36000;
   StartDelay = 0;
 
 	if(timerInit(&t2, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
@@ -83,7 +83,7 @@ int main (){
 	// ~~~~~~~~ Initialize timer #3 ~~~~~~~~
 	timer t3;
 	Period = 10;
-  TasksToExecute = 1000;
+  TasksToExecute = 360000;
   StartDelay = 0;
 
 	if(timerInit(&t3, Period, TasksToExecute, StartDelay, myStartFun, myStopFun,
