@@ -15,8 +15,7 @@
 // ================ Timer functions implementation ================
 void *myTimerFun(void *arg)
 {
-	int n = (int)arg;
-	printf("my function: remaining calls = %d\n", n-1);
+	printf("This is the TIMER function with Userdata=%d\n", *((int *)arg));
 
 	return NULL;
 }

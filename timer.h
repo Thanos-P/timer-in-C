@@ -233,7 +233,7 @@ void *producer(void *args){
     // Set function
     input.work = t->TimerFcn;
     // Set function arguement
-    input.arg = (void *)i;
+    input.arg = t->Userdata;
 
     // Add element to queue
     pthread_mutex_lock(t->fifo->mut);

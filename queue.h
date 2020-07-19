@@ -14,7 +14,7 @@
 #include <sys/time.h>
 #include <sys/times.h>
 
-#define QUEUESIZE 10
+#define QUEUESIZE 100
 
 // Function pointers with arguements structure declaration
 typedef struct {
